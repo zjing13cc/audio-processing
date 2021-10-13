@@ -1,0 +1,40 @@
+import librosa
+import matplotlib.pyplot as plt
+import librosa.display
+import numpy as np
+import os
+import pandas as pd
+
+def mfcc_pro():
+    filepath = ''# audio path
+    wav_list = os.listdir(filepath)
+    for i in range (len(wav_list)):
+        name = wav_list[i]
+        filename = filepath+name
+    # 2. Load the audio as a waveform `y`
+    #    Store the sampling rate as `sr`
+        y, sr = librosa.load(filename,sr=None)
+        print(y.shape,sr)
+    # 1. Get the file path to the included audio example
+    # Sonify detected beat events
+        mfcc = librosa.feature.mfcc(y=y, sr=sr)
+        mfcc_ = pd.DataFrame(mfcc)
+        mfcc_ = mfcc_.T
+        mfcc_.to_csv(''+name.split('.')[0] + '.csv', header=0, index=0)#save .csv file
+def csv_pro():
+    csv_path = ''# csv path
+    csv_list = os.listdir(csv_path + 'feature_data/')
+    for i in range(len(csv_list)):
+        name = csv_list[i]
+        print(name)
+        data = pd.DataFrame(pd.read_csv(csv_path + 'feature_data/'+ name, encoding='CP949', engine='python'))
+        Mean = []
+        n = 0
+        for j in range(int(len(data)/60)):
+            mean = np.mean(data[j+n:60 + j+n])
+            Mean.append(mean)
+            n = j + 60
+        Mean = pd.DataFrame(Mean)
+        Mean.to_csv(csv_path + 'csv/' + name.split('.')[0] + '.csv', header=0, index=0)
+
+csv_pro()
