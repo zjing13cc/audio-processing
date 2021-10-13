@@ -1,0 +1,81 @@
+import wave
+import numpy as np
+import pylab as pl
+import os
+import matplotlib.pyplot as plt
+
+def mkdir(path_3):
+    folder = os.path.exists(path_3)
+    if not folder:  # Determine whether there is a folder, if it does not exist, create a folder
+        os.makedirs(path_3)  # Makedirs will create this path if the path does not exist when creating a file
+        print("---  new folder...  ---")
+        print("---  OK  ---")
+    else:
+        print("---  There is this folder!  ---")
+def sprectrum_pro():
+    filepath = ''# audio path
+    wav_list = os.listdir(filepath)
+    for i in range (len(wav_list)):
+        name = wav_list[i]
+        filename = filepath+name
+        #open wave
+        f = wave.open(filename,"rb")
+
+        params = f.getparams()
+        nchannels, sampwidth,framerate, nframes = params[:4]
+        print(nchannels, sampwidth,framerate, nframes)
+
+        str_data  = f.readframes(nframes)
+        f.close()
+
+        wave_data = np.fromstring(str_data,dtype = np.short)
+        wave_data.shape = -1, 2
+
+        wave_data = wave_data.T
+        # channel= np.mean(abs(wave_data))
+        channel_1 = np.mean(abs(wave_data[0]))
+# channel_2 = np.mean(abs(wave_data[1]))
+        print(channel_1)
+# print(channel_2)
+        wave_data_1 = wave_data[0]
+        print(len(wave_data_1))
+        n = 0
+        for j in range(int(len(wave_data_1)/44100)):
+            wave_new_data = wave_data_1[j + n:j + 44100 + n]
+# wave_data_2 = wave_data[1]
+
+            time=np.arange(0,nframes)/framerate
+            print(time)
+            fft_size = 1024 #FFTprocessing
+# 
+            xs = wave_new_data [:fft_size]# 
+            xf = np.fft.rfft(xs)/fft_size# 
+# 
+            freqs = np.linspace(0, framerate/2, fft_size/2+1)
+# np.linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None)
+
+            xfp = 20*np.log10(np.clip(np.abs(xf), 1e-20, 1e100))
+
+            Fs = framerate
+            plt.specgram(xf, NFFT=1024, Fs=Fs, noverlap=900)
+            path_out = ''+name.split('.')[0]+'/'
+            mkdir(path_out)
+            plt.savefig(path_out + str(j)+'.png')
+            n = n + 4100
+#绘图显示结果
+        # pl.figure(figsize=(8,4))
+        #
+        # pl.subplot(311)
+        # pl.plot(time,wave_data[0])
+        # pl.xlabel("time(s)")
+        # pl.title(u"WaveForm And Freq")
+        # pl.subplot(312)
+        # pl.plot(time[:fft_size], xs)
+        # pl.xlabel(u"Time(S)")
+        #
+        # pl.subplot(313)
+        # pl.plot(freqs, xfp)
+        # pl.xlabel(u"Freq(Hz)")
+        # pl.subplots_adjust(hspace=0.4)
+        # pl.show()
+sprectrum_pro()
