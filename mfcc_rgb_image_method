@@ -1,0 +1,372 @@
+# -*- coding: utf-8 -*-
+import cv2
+import pandas as pd
+import os
+import time
+import wave
+import numpy as np
+import pickle
+import nextpow2
+from moviepy.editor import *
+from natsort import natsorted
+from sklearn import svm
+import pygame
+import warnings
+from sklearn.model_selection import train_test_split,cross_val_score
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn import preprocessing
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')
+
+def video_sound(dir,dir_out,new_video):
+    video = VideoFileClip(dir+new_video+'.mp4')
+    audio = video.audio
+    audio.write_audiofile(dir_out+ new_video + '.wav')
+def extract_sound_from_videos(dir_out,name):
+    fw = wave.open(dir_out+name+'.wav', 'r')
+    soundInfo = fw.readframes(-1)
+    soundInfo = np.fromstring(soundInfo, np.int16)
+    f = fw.getframerate()
+    fs = f
+    x = soundInfo
+    len_ = int(fs / 14.5)  # 样本中帧的大小
+    PERC = 5  # 窗口重叠占帧的百分比
+    len1 = len_ * PERC // 100  # 重叠窗口
+    len2 = len_ - len1  # 非重叠窗口
+    # 初始化汉明窗
+    win = np.hamming(len_)
+    # Noise magnitude calculations - assuming that the first 5 frames is noise/silence
+    nFFT = 2 * 2 ** (nextpow2.nextpow2(len_))
+    j = 0
+    ki = 1
+    img = 1j
+    Nframes = len(x) // len2 - 1
+    Low_Power_M = []
+    Low_Power_S = []
+    Middle_Power_M = []
+    Middle_Power_S = []
+    High_Power_M = []
+    High_Power_S = []
+    for i in range(0, int(Nframes)):
+        # Windowing
+        insign = win * x[ki - 1:ki + len_ - 1]  #
+        plt.subplot(111)
+        spectrum, freqs, ts, fig = plt.specgram(insign, Fs=f, scale_by_freq=True, sides='default')
+        low_power = spectrum[0:43]
+        low_power_mean = np.mean(low_power)
+        low_power_std = np.std(low_power)
+        Low_Power_M.append(low_power_mean)
+        Low_Power_S.append(low_power_std)
+
+        middle_power = spectrum[43:86]
+        middle_power_mean =np.mean(middle_power)
+        middle_power_std = np.std(middle_power)
+        Middle_Power_M.append(middle_power_mean)
+        Middle_Power_S.append(middle_power_std)
+
+        high_power = spectrum[86:129]
+        high_power_mean = np.mean(high_power)
+        high_power_std = np.std(high_power)
+        High_Power_M.append(high_power_mean)
+        High_Power_S.append(high_power_std)
+        ki = ki + len2
+        print(i)
+    fw.close()
+    Sound = []
+    # print(len(gray_avg))
+    for i in range(len(Low_Power_M)):
+        sounds = []
+        sounds.append(Low_Power_M[i])
+        sounds.append(Low_Power_S[i])
+        sounds.append(Middle_Power_M[i])
+        sounds.append(Middle_Power_S[i])
+        sounds.append(High_Power_M[i])
+        sounds.append(High_Power_S[i])
+        Sound.append(sounds)
+    return Sound
+    # return Low_Power_M,Low_Power_S,Middle_Power_M, Middle_Power_S, High_Power_M,High_Power_S
+def feature_unite(dir_,dir_out,name):
+    Video_feature = []
+    print('image processing ...')
+    Image = extract_colors_from_videos(dir_,name) #传入图像特征值
+    print('sound processing ...')
+    Low_M, Low_S, Middle_M, Middle_S, High_M, High_S = extract_sound_from_videos(dir_out,name) #传入声音特征值
+    #重新组成新的列 video_Feanture[Image,Sound]
+    for i in range(len(Image)):
+        video_feature = []
+        video_feature.append(Image[i][0]);video_feature.append(Image[i][1]);video_feature.append(Image[i][2]);video_feature.append(Image[i][3]);video_feature.append(Image[i][4])
+        video_feature.append(Low_M[i])
+        video_feature.append(Low_S[i])
+        video_feature.append(Middle_M[i])
+        video_feature.append(Middle_S[i])
+        video_feature.append(High_M[i])
+        video_feature.append(High_S[i])
+        Video_feature.append(video_feature)
+
+    return Video_feature
+
+def mkdir(path_3):
+    folder = os.path.exists(path_3)
+    if not folder:  # 判断是否存在文件夹如果不存在则创建为文件夹
+        os.makedirs(path_3)  # makedirs 创建文件时如果路径不存在会创建这个路径
+        print("---  new folder...  ---")
+        print("---  OK  ---")
+    else:
+        print("---  There is this folder!  ---")
+
+def extract_colors_from_videos(dir_,name):
+    cap = cv2.VideoCapture(dir_+name+'.mp4')
+    frame_cnt = 0
+    # 读取每一帧
+    f_index = [];gray_avg = [];r_avg = [];g_avg = [];b_avg = [];h_avg = [];s_avg = [];v_avg = [];l_avg = [];alpha_avg = [];beta_avg = []
+    while True:
+        ret, frame = cap.read() # Capture frame
+        if ret:
+            # print("frame_cnt:", frame_cnt, "image_size:", len(frame[0]), len(frame))
+            frame_cnt += 1  # frame count
+            print(frame_cnt)
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Convert to gray scale
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) # Convert to RGB
+            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) # Convert to HSV
+            lab_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)  # Convert to LAB
+            # 分离每个特征值
+            r, g, b = cv2.split(rgb_frame)
+            h, s, v = cv2.split(hsv_frame)
+            l, alpha, beta = cv2.split(lab_frame)
+            #求整张图片的mean值，然后放入列表中
+            gray_avg.append(gray_frame.mean())
+            h_avg.append(h.mean())
+            s_avg.append(s.mean())
+            alpha_avg.append(alpha.mean())
+            beta_avg.append(beta.mean())
+
+        else:
+            break
+    cap.release()
+    Image =[]
+    # print(len(gray_avg))
+    for i in range(len(gray_avg)):
+        images = []
+        images.append(gray_avg[i])
+        images.append(h_avg[i])
+        images.append(s_avg[i])
+        images.append(alpha_avg[i])
+        images.append(beta_avg[i])
+        Image.append(images)
+    return Image
+
+    # return gray_avg,h_avg,s_avg,alpha_avg,beta_avg
+
+def video(dir_,dir_out,name,fm,e_image,n_image,e_video,n_video,empathy_result,new_video):
+    fig = plt.figure(figsize=(3.6, 3.6), dpi=100)
+
+    cap = cv2.VideoCapture(dir_+name+'.mp4')
+
+    EI = [];EV = []
+    NI = [];NV = []
+    pygame.mixer.music.load(dir_out+name+'.wav')  # 载入音频
+    print('music done!')
+    pygame.mixer.music.play()  # 开始播放音频
+    for i in range(fm):
+        # update data
+        plt.cla()
+        # y轴范围和名称
+        plt.ylim(-0.5, 3.5)
+        # x轴范围和名称
+        EI.append(e_image[i])
+        NI.append(n_image[i])
+        EV.append(e_video[i])
+        NV.append(n_video[i])
+        price = [n_image[i],e_image[i], n_video[i],e_video[i]]
+        plt.barh(range(4),price,  color='b', alpha=0.6)  # 从下往上画
+        colors = 'yellowgreen'
+        plt.yticks(range(4), ['Image\nEmpathy\nScore','Image\nNo\nEmpathy\nScore',
+                             'Image+Sound\nEmpathy\nScore','Image+Sound\nNo\nEmpathy\nScore'],color=colors,fontsize=8,ha='center',va= 'center')
+        plt.xlim(0, 1)
+        # plt.xlabel("Real Time Empathy Evaluation")
+        for x, y in enumerate(price):
+            plt.text(y+0.02, x+0.02, '%.2f%%' % (y*100), color="r",fontsize=10,ha='center',va= 'bottom')
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8,
+                            sep='')
+        img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+        # img is rgb, convert to opencv's default bgr
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        ret, frame = cap.read()
+        frame = cv2.resize(frame, (640, 360))
+        numpy_vertical_concat = np.concatenate((img, frame), axis=1)
+
+        cv2.imshow('Real Time Empathy Evaluation', numpy_vertical_concat)
+        k = cv2.waitKey(1) & 0xFF
+        if str(i) == str(fm-1):
+            cv2.imwrite(empathy_result+new_video+'.png',numpy_vertical_concat)
+            time.sleep(10)
+        # if k == 27:
+        #     break
+def image_pred(dir_,name,image_train_clf_knn):
+    Images = extract_colors_from_videos(dir_,name)
+    #只用 image 特征值
+    f_knn = open(image_train_clf_knn, 'rb')
+    s_knn = f_knn.read()
+    model_knn = pickle.loads(s_knn)
+    X_test = preprocessing.scale(Images)
+    y_pred_knn = model_knn.predict(X_test)
+    x = len(y_pred_knn)
+    # print(y_pred_knn)
+    empathy = 0; no_empathy = 0
+    E_image =[]; N_image=[]; e = 0; n = 0
+    for m in range(len(y_pred_knn)):
+        if str(y_pred_knn[m]) == '1':
+            empathy = empathy + 1
+            e = empathy/len(y_pred_knn)
+            e = '%.2f' % e
+            E_image.append(float(e))
+            N_image.append(float(n))
+        else:
+            no_empathy = no_empathy + 1
+            n = no_empathy / len(y_pred_knn)
+            n = '%.2f' % n
+            N_image.append(float(n))
+            E_image.append(float(e))
+    return x,E_image,N_image
+
+def video_pred(dir_,dir_out,name,video_train_clf_knn):
+    Video_feature = feature_unite(dir_,dir_out,name)
+    #只用 image 特征值
+    f_knn = open(video_train_clf_knn, 'rb')
+    s_knn = f_knn.read()
+    model_knn = pickle.loads(s_knn)
+    X_test = preprocessing.scale(Video_feature)
+    y_pred_knn = model_knn.predict(X_test)
+    video_y = []
+    for i in range(len(Video_feature)):
+        video_element =[]
+        for j in range(len(Video_feature[0])):
+            video_element.append(Video_feature[i][j])
+            if str(j) == str(len(Video_feature[0])-1):
+                video_element.append(y_pred_knn[i])
+        video_y.append(video_element)
+    empathy = 0; no_empathy = 0
+    E_video =[]; N_video=[]; e = 0; n = 0
+    for m in range(len(y_pred_knn)):
+        if str(y_pred_knn[m]) == '1':
+            empathy = empathy + 1
+            e = empathy/len(y_pred_knn)
+            e = '%.2f' % e
+            E_video.append(float(e))
+            N_video.append(float(n))
+
+        else:
+            no_empathy = no_empathy + 1
+            n = no_empathy / len(y_pred_knn)
+            n = '%.2f' % n
+            N_video.append(float(n))
+            E_video.append(float(e))
+    return E_video,N_video,video_y
+
+def video_clip(video_path,new_video_path,name, a,b):
+    clip1 = VideoFileClip(video_path).subclip(a, b)  # 读取视频1.mp4，并截取0-158秒的内容
+    clip1.write_videofile(new_video_path+name)  # 视频写入2.mp4
+
+def hebing(path_in,name,path_out):#合并
+    file_name = path_in + 'sound_image.csv'
+    df = pd.read_csv(path_out + name +'.csv' ,  encoding='CP949', engine='python')
+    save = pd.DataFrame(df)
+    save.to_csv(file_name, mode='a', index=False)
+def fenduan(dir,new_video_path):
+    v = cv2.VideoCapture(dir)  # 长于1分钟的视频要剪成1分钟的视频分段处理
+    fs = v.get(cv2.CAP_PROP_FRAME_COUNT)
+    print(fs)
+    num = int(fs / (30 * 60))
+    print(num)
+    for i in range(num):
+        a = 60 * i
+        b = 60 * (i + 1)
+        print(a, b)
+        video_clip(dir, new_video_path,str(i+1)+'.mp4',a,b)
+        if int(b) == int(num * 60):
+            a = num * 60
+            b = int(fs / 30)
+            print(a, b)
+            video_clip(dir, new_video_path,str(num+1)+'.mp4', a, b)
+def load_dataset(file_path):
+    train_data = pd.DataFrame(pd.read_csv(file_path +'sound_image.csv',encoding='CP949', engine='python'))
+    X_train = np.array(train_data[['gray', 'h', 's', 'alpha', 'beta','Low_Power_M','Low_Power_S','Middle_Power_M','Middle_Power_S','High_Power_M','High_Power_S']])
+    y_train = np.array(train_data[['label']])
+    return X_train,y_train
+def knn_clf(file_path):
+    warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn", lineno=196)
+    X_train, y_train = load_dataset(file_path)
+    X_train, X_test, y_train, y_test = train_test_split(X_train, y_train, test_size=0.3, random_state=None)
+    ros = RandomOverSampler(random_state=0)
+    X_train = preprocessing.scale(X_train)
+    X_train, y_train = ros.fit_resample(X_train, y_train)
+    # classifier = KNeighborsClassifier(n_neighbors=13)
+    classifier = svm.NuSVC(decision_function_shape='ovo',max_iter =-1)
+    classifier.fit(X_train, y_train)
+    y_pred_train = classifier.predict(X_train)
+    with open(file_path +'empathy_svm.pickle','wb') as f:
+        pickle.dump(classifier,f)
+'''
+if __name__ == '__main__':
+    Emotion = [str('halv'),str('lalv'),str('hahv'),str('lahv')]
+    for e in range (len(Emotion)):
+        emotion = Emotion[e]
+        video_name = [str(emotion +'2'),str(emotion +'3'),str(emotion +'4'),str(emotion +'5'),str(emotion +'6')];new_video = []
+        for n in range (len(video_name)):
+            path = 'E:/ffmpeg-latest-win64-static/1_biyelunwenshiyan/physical_element/'
+            dir = 'E:/ffmpeg-latest-win64-static/1_biyelunwenshiyan/stimulate/'+emotion+'/'+video_name[n] +'/'+video_name[n]+'.mp4'
+            new_video_path = path +video_name[n] +'/new_video_path/'
+            video_train_clf_knn = path + 'empathy_svm.pickle'
+            image_train_clf_knn = 'E:/ffmpeg-latest-win64-static/2019_11_12_experimental_data/GAZE_DATA_backup/7_09_proceess/classifier/pickle/image_svm.pickle'
+            sound_rgb_out = path +video_name[n] +'/sound_rgb_out/'
+            mkdir(new_video_path)
+            fenduan(dir,new_video_path)#视频分段
+            vide_new_name = os.listdir(new_video_path)
+            new_video.append(vide_new_name)
+            for v in range(len(new_video[0])):
+                print(new_video[0])
+                empathy_result = path +video_name[n] +'/new_video_image/'
+                dir_out = path +video_name[n] +'/new_video_wav/'
+                csv_path = path +video_name[n] +'/csv/'
+                mkdir(dir_out)
+                mkdir(empathy_result)
+                mkdir(csv_path)
+                new_video_ = new_video[0][v]
+                print(new_video_)
+                video_sound(new_video_path,dir_out, new_video_.split('.')[0])
+                print('wait...')
+                x,E_image,N_image = image_pred(new_video_path,new_video_.split('.')[0],image_train_clf_knn)
+                E_video, N_video,video_y = video_pred(new_video_path,dir_out,new_video_.split('.')[0],video_train_clf_knn)
+                print(video_y)
+                data = pd.DataFrame(video_y)
+                data.to_csv(csv_path + new_video_.split('.')[0]+'.csv', header=0, index=0)
+                video(new_video_path,dir_out,new_video_.split('.')[0],x,E_image,N_image,E_video, N_video,empathy_result,new_video_.split('.')[0])
+                hebing(path,new_video_.split('.')[0],csv_path)
+                knn_clf(path)
+'''
+
+# dir = 'E:/ffmpeg-latest-win64-static/1_biyelunwenshiyan/Stimulus_selection_data/stimulus/1_video/'
+dir_out = './ROI_image/'
+path_out = './ROI_csv/'
+name = os.listdir(dir_out)
+for i in range(len(name)):
+    print(name[i])
+    mid_path = dir_out + name[i] +'/'
+    video_new_name = os.listdir(mid_path)
+    for n in range(len(video_new_name)):
+    # for n in range(len(num)):
+        video_name = video_new_name[n].split('.')[0]
+        # video_name = num[n]
+        dir_ = dir
+        # Video_feature = feature_unite(dir_, dir_out, video_name)
+        Image = extract_colors_from_videos(mid_path, video_name)
+        path_out_ = path_out + name[i] + '/'
+        mkdir(path_out_)
+        save = pd.DataFrame(Image)
+        save.to_csv( path_out_ + str(video_name) + '_image.csv', mode='a', index=False)
